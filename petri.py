@@ -8,6 +8,8 @@ class Place:
         self.dots = dots
         self.contains = len(dots)
 
+    def get_colors(self):
+        return [d.data for d in self.dots]
 
 class Dot:
     def __init__(self, data):
@@ -15,30 +17,34 @@ class Dot:
 
 
 class ArcBase:
-    def __init__(self, place, amount=1):
+    def __init__(self, place, color, amount=1):
+        self.color = color
         self.place = place
         self.amount = amount
 
+    def get_color(self):
+        return self.color
 
 class Out(ArcBase):
     def trigger(self) -> not None:
-        elem = self.place.dots.pop(0)
+        dot = list(filter(lambda x: x.data == self.get_color(), self.place.dots))
+        self.place.dots.remove(dot[0])
         self.place.contains -= self.amount
-        return elem
+        return dot[0]
 
     def non_blocking(self) -> bool:
-        return self.place.contains >= self.amount
+        return self.place.contains >= self.amount and self.color in self.place.get_colors()
 
 
 class In(ArcBase):
     def trigger(self, dot) -> None:
-        for i in dot:
-            self.place.dots.append(i)
+        self.place.dots.append(dot)
         self.place.contains += self.amount
 
 
 class Transition:
-    def __init__(self, out_arcs, in_arcs):
+    def __init__(self, name, out_arcs, in_arcs):
+        self.name = name
         self.out_arcs = set(out_arcs)
         self.in_arcs = set(in_arcs)
         self.storage = []
@@ -51,9 +57,14 @@ class Transition:
                 self.storage.append(elem)
             for arc in self.in_arcs:
                 if len(self.storage) == 1:
-                    arc.trigger(self.storage)
+                    arc.trigger(self.storage[0])
                 else:
-                    arc.trigger([self.storage.pop(0)])
+                    dot = list(filter(lambda x: x.data == arc.get_color(), self.storage))
+                    if len(dot) == 0:
+                        continue
+                    self.storage.remove(dot[0])
+                    arc.trigger(dot[0])
+        self.storage = []
         return not_blocked
 
 
@@ -74,16 +85,15 @@ class PetriNet:
                 print(f'    {current_state}')
             else:
                 print(f'{name} forbidden')
+                break
         result_state = [[dot.data for dot in place.dots] for place in places]
         print(f'\nresult {result_state}')
 
 
 def parse_arguments() -> tuple:
     parser = ArgumentParser()
-    parser.add_argument('--sequence', type=str, nargs='+')
     parser.add_argument('--places', type=str, nargs='+')
     args = parser.parse_args()
-    execution_sequence = args.sequence
 
     places_lst = []
     tmp_list = []
@@ -94,24 +104,25 @@ def parse_arguments() -> tuple:
                 tmp_list.append(Dot(d))
         places_lst.append(Place(tmp_list))
         tmp_list = []
-    return execution_sequence, places_lst
+    return places_lst
 
 
 if __name__ == "__main__":
-    execution_sequence, places_lst = parse_arguments()
+    places_lst = parse_arguments()
     places = places_lst
-    sequence = execution_sequence
 
     transitions = dict(
-        t1=Transition(
-            [Out(places[0])],
-            [In(places[1]), In(places[2])]
+        t1=Transition(1,
+            [Out(places[0], "red"), Out(places[0], "blue")],
+            [In(places[1], "red"), In(places[2], "blue")]
         ),
-        t2=Transition(
-            [Out(places[1]), Out(places[2])],
-            [In(places[3]), In(places[0])]
+        t2=Transition(2,
+            [Out(places[1], "red"), Out(places[2], "blue"), Out(places[2], "red")],
+            [In(places[3], "red"), In(places[0], "blue")]
         )
     )
+
+    sequence = [choice(list(transitions.keys())) for _ in range(5)]
 
     petri_net = PetriNet(transitions)
     petri_net.run(sequence, places)
